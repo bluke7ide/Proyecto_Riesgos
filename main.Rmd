@@ -1,0 +1,206 @@
+---
+title: "Untitled"
+output: html_document
+date: "2025-11-10"
+---
+
+```{r}
+pacman::p_load(
+  readr,
+  tidyverse, 
+  ggplot2,
+  dplyr,
+  isotree,
+  recipes,
+  keras,
+  tibble,
+  tensorflow,
+  torch
+)
+```
+
+
+```{r}
+bank <- read_csv("data/bank_transactions_data_2.csv")
+```
+
+```{r}
+bank %>%
+  count(AccountID) %>%
+  ggplot(aes(x = n)) +
+  geom_histogram(binwidth = 1, boundary = 0.5, fill = "steelblue", color = "white") +
+  scale_x_continuous(breaks = 1:12, limits = c(0.5, 12.5)) +
+  labs(
+    x = "Número de registros por cuenta (n)",
+    y = "Frecuencia"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+ggplot(bank, aes(x = TransactionAmount)) +
+  geom_histogram(
+    bins = 30,               # cantidad de barras (puedes ajustar)
+    fill = "steelblue",
+    color = "white"
+  ) +
+  labs(
+    x = "Monto de transacción",
+    y = "Frecuencia"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+bank %>%
+  group_by(AccountID) %>%
+  summarise(mean_balance = mean(AccountBalance, na.rm = TRUE)) %>%
+  ggplot(aes(x = mean_balance)) +
+  geom_histogram(
+    bins = 30,                # podés ajustar la cantidad de barras
+    fill = "steelblue",
+    color = "white"
+  ) +
+  labs(
+    x = "Balance promedio por cuenta",
+    y = "Número de cuentas",
+    title = "Histograma del balance promedio por AccountID"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+ggplot(bank, aes(x = CustomerAge)) +
+  geom_histogram(
+    bins = 20,                 # ajustá según la granularidad que quieras
+    fill = "steelblue",
+    color = "white"
+  ) +
+  labs(
+    x = "Edad del cliente",
+    y = "Frecuencia",
+    title = "Histograma de la edad de los clientes"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+mean_amount <- mean(bank$TransactionAmount)
+std_amount <- sd(bank$TransactionAmount)
+anomaly_threshold <- mean_amount + 2 * std_amount
+
+# Flag anomalies
+bank$Is_Anomaly <-  bank$TransactionAmount > anomaly_threshold
+
+# Scatter plot of Transaction Amount with anomalies highlighted
+ggplot(bank, aes(x = TransactionAmount,
+                 y = AccountBalance,
+                 color = factor(Is_Anomaly))) +
+  geom_point(alpha = 0.7) +
+  labs(color = "Is Anomaly",
+       x = "Transaction Amount",
+       y = "Account Balance",
+       title = "Transacciones vs Balance") +
+  theme_minimal()
+```
+# Isolation Forest
+## Preparación
+```{r}
+features <- bank %>%
+  select(TransactionAmount, AccountBalance,
+         TransactionDuration, LoginAttempts, CustomerAge) 
+
+
+rec <- recipe(~ ., data = features) %>%
+  step_center(all_numeric()) %>%
+  step_scale(all_numeric())
+
+prep_rec <- prep(rec, training = features)
+features_scaled <- bake(prep_rec, new_data = features)
+```
+
+## Modelo
+```{r}
+iso_model <- isolation.forest(
+  as.matrix(features_scaled),
+  ntrees = 100,
+  sample_size = 256,
+  nthreads = 2
+)
+
+
+iso_scores <- predict(iso_model, as.matrix(features_scaled), type = "score")
+bank$iso_score <- iso_scores
+
+
+threshold_iso <- quantile(iso_scores, 0.95)
+# Reescribir en la base de datos
+bank$iso_anomaly_flag <- iso_scores > threshold_iso
+```
+
+# Autoencoder
+## Preparación
+```{r}
+x <- torch_tensor(as.matrix(features_scaled), dtype = torch_float())
+
+input_dim <- ncol(features_scaled)
+encoder_dim <- round(input_dim / 2)
+
+
+autoencoder <- nn_module(
+  initialize = function() {
+    self$encoder <- nn_linear(input_dim, encoder_dim)
+    self$decoder <- nn_linear(encoder_dim, input_dim)
+  },
+  
+  forward = function(x) {
+    x %>%
+      self$encoder() %>%
+      nnf_relu() %>%
+      self$decoder()
+  }
+)
+
+model <- autoencoder()
+optimizer <- optim_adam(model$parameters, lr = 0.001)
+loss_fn <- nn_mse_loss()
+```
+
+## Entrenamiento
+```{r}
+epochs <- 50
+batch_size <- 32
+n <- x$size(1)
+
+for (epoch in 1:epochs) {
+  idx <- sample(1:n)
+  x <- x[idx, ]
+  
+  for (i in seq(1, n, by = batch_size)) {
+    batch <- x[i:min(i + batch_size - 1, n), ]
+    
+    optimizer$zero_grad()
+    output <- model(batch)
+    loss <- loss_fn(output, batch)
+    loss$backward()
+    optimizer$step()
+  }
+  
+  if (epoch %% 10 == 0)
+    cat("Epoch:", epoch, "Loss:", loss$item(), "\n")
+}
+```
+
+## Reconstrucción y MSE
+```{r}
+recon <- as.array(model(x)$to(device = "cpu"))
+orig <- as.matrix(features_scaled)
+
+mse <- rowMeans((orig - recon)^2)
+bank$ae_mse <- mse
+
+threshold_ae <- quantile(mse, 0.95)
+bank$ae_anomaly_flag <- mse > threshold_ae
+```
+
