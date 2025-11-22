@@ -1,10 +1,11 @@
 ---
 title: "Proyecto - Riesgos en Instrumentos Financieros"
 author: 
-  - Luis Fernando Amey Apuy - C20470
-  - Javier Hernández Navarro - C13674
-  - Anthony Mauricio Jiménez Navarro - C24067
-  - Gustavo Alberto Amador Fonseca - C20459
+  - Luis Fernando Amey Apuy 
+  - Javier Hernández Navarro 
+  - Anthony Mauricio Jiménez Navarro 
+  - Gustavo Alberto Amador Fonseca 
+  - Johan Castaño Bustamante 
 date: "`r Sys.Date()`"
 output:
   rmdformats::robobook:
@@ -86,9 +87,11 @@ anomaly_threshold <- mean_amount + 2 * std_amount
 
 # Flag anomalies
 bank$Is_Anomaly <-  bank$TransactionAmount > anomaly_threshold
+```
 
-# Scatter plot of Transaction Amount with anomalies highlighted
-ggplot(bank, aes(x = TransactionAmount,
+## Resultado
+```{r, warning=FALSE, echo=FALSE, message=FALSE}
+fig <- ggplot(bank, aes(x = TransactionAmount,
                  y = AccountBalance,
                  color = factor(Is_Anomaly))) +
   geom_point(alpha = 0.7) +
@@ -97,6 +100,8 @@ ggplot(bank, aes(x = TransactionAmount,
        y = "Account Balance",
        title = "Transacciones vs Balance") +
   theme_minimal()
+fig
+ggsave("res/Zsc.pdf", fig, width = 8, height = 4)
 ```
 
 # Isolation Forest
@@ -132,6 +137,21 @@ bank$iso_score <- iso_scores
 threshold_iso <- quantile(iso_scores, 0.95)
 # Reescribir en la base de datos
 bank$iso_anomaly_flag <- iso_scores > threshold_iso
+```
+
+## Resultado
+```{r, warning=FALSE, echo=FALSE, message=FALSE}
+fig <- ggplot(bank, aes(x = TransactionAmount,
+                 y = AccountBalance,
+                 color = factor(iso_anomaly_flag))) +
+  geom_point(alpha = 0.7) +
+  labs(color = "Is Anomaly",
+       x = "Transaction Amount",
+       y = "Account Balance",
+       title = "Transacciones vs Balance") +
+  theme_minimal()
+fig
+ggsave("res/iso.pdf", fig, width = 8, height = 4)
 ```
 
 # Autoencoder
@@ -181,9 +201,6 @@ for (epoch in 1:epochs) {
     loss$backward()
     optimizer$step()
   }
-  
-  if (epoch %% 10 == 0)
-    cat("Epoch:", epoch, "Loss:", loss$item(), "\n")
 }
 ```
 
@@ -198,4 +215,76 @@ bank$ae_mse <- mse
 threshold_ae <- quantile(mse, 0.95)
 bank$ae_anomaly_flag <- mse > threshold_ae
 ```
+
+## Resultado
+```{r, warning=FALSE, echo=FALSE, message=FALSE}
+fig <- ggplot(bank, aes(x = TransactionAmount,
+                 y = AccountBalance,
+                 color = factor(ae_anomaly_flag))) +
+  geom_point(alpha = 0.7) +
+  labs(color = "Is Anomaly",
+       x = "Transaction Amount",
+       y = "Account Balance",
+       title = "Transacciones vs Balance") +
+  theme_minimal()
+fig
+ggsave("res/AE.pdf", fig, width = 8, height = 4)
+```
+
+# Interpretación de modelos
+```{r}
+comparison <- bank %>%
+mutate(
+z_score_flag = Is_Anomaly,
+iso_flag = iso_anomaly_flag,
+ae_flag = ae_anomaly_flag
+) %>%
+select(z_score_flag, iso_flag, ae_flag,
+iso_score, ae_mse, TransactionAmount)
+
+
+anomaly_rates <- data.frame(
+Modelo = c("Z-Score", "Isolation Forest", "Autoencoder"),
+Porcentaje = 100 * c(
+mean(comparison$z_score_flag),
+mean(comparison$iso_flag),
+mean(comparison$ae_flag)
+)
+)
+
+
+score_corr <- cor(
+comparison %>% select(iso_score, ae_mse),
+method = "spearman"
+)[1,2]
+
+
+agreement_matrix <- table(
+Z = comparison$z_score_flag,
+ISO = comparison$iso_flag,
+AE = comparison$ae_flag
+)
+
+
+comparison <- comparison %>%
+mutate(
+iso_rank = rank(-iso_score),
+ae_rank = rank(-ae_mse)
+)
+
+
+cat("=== Porcentaje de anomalías detectadas ===\n")
+print(anomaly_rates)
+cat("\n\n")
+
+cat("=== Correlación entre AE y ISO ===\n")
+print(score_corr)
+
+cat("=== Coincidencia entre modelos (tabla cruzada) ===\n")
+print(agreement_matrix)
+cat("\n\n")
+```
+
+
+
 
