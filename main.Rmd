@@ -1,5 +1,5 @@
 ---
-title: "Proyecto - Riesgos en Instrumentos Financieros"
+title: "Proyecto - Riesgos en Entidades Financieros"
 author: 
   - Luis Fernando Amey Apuy 
   - Javier Hernández Navarro 
@@ -25,7 +25,8 @@ pacman::p_load(
   keras,
   tibble,
   tensorflow,
-  torch
+  torch,
+  ComplexUpset
 )
 ```
 
@@ -232,59 +233,77 @@ ggsave("res/AE.pdf", fig, width = 8, height = 4)
 ```
 
 # Interpretación de modelos
-```{r}
+```{r, echo=FALSE}
 comparison <- bank %>%
-mutate(
-z_score_flag = Is_Anomaly,
-iso_flag = iso_anomaly_flag,
-ae_flag = ae_anomaly_flag
-) %>%
-select(z_score_flag, iso_flag, ae_flag,
-iso_score, ae_mse, TransactionAmount)
+  mutate(
+    z_score_flag = Is_Anomaly,
+    iso_flag = iso_anomaly_flag,
+    ae_flag = ae_anomaly_flag
+  ) %>%
+  select(z_score_flag, iso_flag, ae_flag,
+         iso_score, ae_mse, TransactionAmount)
 
 
 anomaly_rates <- data.frame(
-Modelo = c("Z-Score", "Isolation Forest", "Autoencoder"),
-Porcentaje = 100 * c(
-mean(comparison$z_score_flag),
-mean(comparison$iso_flag),
-mean(comparison$ae_flag)
-)
+  Modelo = c("Z-Score", "Isolation Forest", "Autoencoder"),
+  Porcentaje = 100 * c(
+    mean(comparison$z_score_flag),
+    mean(comparison$iso_flag),
+    mean(comparison$ae_flag)
+  )
 )
 
 
 score_corr <- cor(
-comparison %>% select(iso_score, ae_mse),
-method = "spearman"
+  comparison %>% select(iso_score, ae_mse),
+  method = "spearman"
 )[1,2]
 
 
 agreement_matrix <- table(
-Z = comparison$z_score_flag,
-ISO = comparison$iso_flag,
-AE = comparison$ae_flag
+  ISO = comparison$iso_flag,
+  AE = comparison$ae_flag,
+  Z = comparison$z_score_flag
 )
 
 
 comparison <- comparison %>%
-mutate(
-iso_rank = rank(-iso_score),
-ae_rank = rank(-ae_mse)
-)
-
-
-cat("=== Porcentaje de anomalías detectadas ===\n")
-print(anomaly_rates)
-cat("\n\n")
-
-cat("=== Correlación entre AE y ISO ===\n")
-print(score_corr)
-
-cat("=== Coincidencia entre modelos (tabla cruzada) ===\n")
-print(agreement_matrix)
-cat("\n\n")
+  mutate(
+    iso_rank = rank(-iso_score),
+    ae_rank = rank(-ae_mse)
+  )
 ```
 
+## Porcentaje de anomalías detectadas
+```{r, echo=FALSE}
+print(anomaly_rates)
+```
 
+## Correlación entre AE y ISO
+```{r, echo=FALSE}
+print(score_corr)
+```
 
+## Coincidencia entre modelos (tabla cruzada)
+```{r, echo=FALSE}
+df_upset <- as.data.frame(
+  lapply(
+    bank[c("Is_Anomaly", "iso_anomaly_flag", "ae_anomaly_flag")],
+    as.integer
+  )
+)
+colnames(df_upset) <- c("Z", "ISO", "AE")
+```
 
+```{r, echo=FALSE, warning=FALSE}
+fig <- upset(df_upset,
+      intersect = c("Z", "ISO", "AE"),
+      set_sizes = FALSE,
+      base_annotations = list(
+        'Intersection size' = intersection_size(
+        fill = "steelblue"    
+    )
+  ))
+fig 
+ggsave("res/comp.pdf", fig, width = 8, height = 4)
+```
