@@ -1,9 +1,18 @@
 ---
-title: "Untitled"
-output: html_document
-date: "2025-11-10"
+title: "Proyecto - Riesgos en Instrumentos Financieros"
+author: 
+  - Luis Fernando Amey Apuy - C20470
+  - Javier Hernández Navarro - C13674
+  - Anthony Mauricio Jiménez Navarro - C24067
+  - Gustavo Alberto Amador Fonseca - C20459
+date: "`r Sys.Date()`"
+output:
+  rmdformats::robobook:
+    self_contained: true
+    highlight: tango
 ---
 
+# Importación y librerías
 ```{r}
 pacman::p_load(
   readr,
@@ -19,11 +28,11 @@ pacman::p_load(
 )
 ```
 
-
-```{r}
+```{r, message=FALSE}
 bank <- read_csv("data/bank_transactions_data_2.csv")
 ```
 
+# AED
 ```{r}
 bank %>%
   count(AccountID) %>%
@@ -63,28 +72,13 @@ bank %>%
   ) +
   labs(
     x = "Balance promedio por cuenta",
-    y = "Número de cuentas",
-    title = "Histograma del balance promedio por AccountID"
+    y = "Número de cuentas"
   ) +
   theme_minimal()
 
 ```
 
-```{r}
-ggplot(bank, aes(x = CustomerAge)) +
-  geom_histogram(
-    bins = 20,                 # ajustá según la granularidad que quieras
-    fill = "steelblue",
-    color = "white"
-  ) +
-  labs(
-    x = "Edad del cliente",
-    y = "Frecuencia",
-    title = "Histograma de la edad de los clientes"
-  ) +
-  theme_minimal()
-```
-
+# Z score
 ```{r}
 mean_amount <- mean(bank$TransactionAmount)
 std_amount <- sd(bank$TransactionAmount)
@@ -104,6 +98,7 @@ ggplot(bank, aes(x = TransactionAmount,
        title = "Transacciones vs Balance") +
   theme_minimal()
 ```
+
 # Isolation Forest
 ## Preparación
 ```{r}
